@@ -1,0 +1,56 @@
+# .github/workflows/deploy-pages.yml
+name: Deploy Next.js to GitHub Pages
+
+on:
+  push:
+    branches: [ "main" ]   # ← mainにpushしたら自動デプロイ
+  workflow_dispatch:        # ← 手動実行もできる
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'        # package-lock.json を見てnpmキャッシュ
+
+      - name: Install dependencies
+        run: npm ci           # lockファイル通りにクリーンインストール
+
+      - name: Build (Static export to ./out)
+        run: npm run build    # next.config.ts の output:'export' により ./out が生成
+
+      - name: Add .nojekyll
+        run: |
+          mkdir -p out
+          touch out/.nojekyll # _next 等の先頭_フォルダをJekyllに触らせない
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./out         # これがGitHub Pagesに配布される
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
