@@ -312,3 +312,28 @@ export default function QuizPage() {
     </>
   );
 }
+
+// この動的セグメントは、生成したパス以外を 404 にします（未定義URL対策）
+export const dynamicParams = false;
+
+// 静的に生成するパス一覧を返す
+export async function generateStaticParams() {
+  const fs = await import('fs');
+  const path = await import('path');
+
+  // public/csv フォルダの .csv を列挙 → 拡張子を外して { file } に変換
+  const dir = path.join(process.cwd(), 'public', 'csv');
+  let names: string[] = [];
+  try {
+    names = fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((d) => d.isFile() && d.name.endsWith('.csv'))
+      .map((d) => d.name.replace(/\.csv$/i, ''));
+  } catch (e) {
+    // フォルダがなくてもエラーにしない（空配列なら /quiz/* は生成されない）
+    names = [];
+  }
+
+  // [{ file: 'math' }, { file: 'english' }] のような形で返す
+  return names.map((file) => ({ file }));
+}
