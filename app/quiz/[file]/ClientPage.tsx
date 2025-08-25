@@ -23,9 +23,9 @@ type Result = {
 };
 
 const KANA_LABELS = ['イ', 'ロ', 'ハ', 'ニ', 'ホ', 'ヘ', 'ト'] as const;
-const NUM_LABELS  = ['1', '2', '3', '4', '5', '6', '7'] as const;
+const NUM_LABELS  = ['1', '2',  '3',  '4',  '5',  '6',  '7'] as const;
 
-/** ランタイムで basePath/assetPrefix を安全に取得 */
+/** ランタイムで basePath/assetPrefix を安全に取得（静的ファイル用） */
 function getPrefix(): string {
   const envPrefix = process.env.NEXT_PUBLIC_BASE_PATH || '';
   if (envPrefix) return envPrefix;
@@ -45,7 +45,7 @@ function getPrefix(): string {
 
 export default function ClientPage({ fileParam }: { fileParam: string }) {
   const router = useRouter();
-  const PREFIX = getPrefix();
+  const PREFIX = getPrefix(); // 画像/CSVの取得にのみ使用（ルーター遷移には使わない）
 
   const fileRaw = decodeURIComponent(fileParam);
   const baseName = fileRaw.replace(/\.csv$/i, '');
@@ -102,11 +102,11 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
     });
   };
 
-  /** フェッチを複数の候補でトライ（GitHub Pages でのパスずれ対策） */
+  /** フェッチを複数候補でトライ（GitHub Pages のパスずれ対策） */
   async function fetchWithFallbacks(path: string): Promise<Response> {
     const candidates = [
-      `${PREFIX}${path}`,
-      path,
+      `${PREFIX}${path}`, // /repo/path
+      path,               // /path
     ];
     let lastErr: any = null;
     for (const url of candidates) {
@@ -213,7 +213,8 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
     <>
       <div className="global-header">
         <div className="bar">
-          <button className="ghost" onClick={() => router.push(`${PREFIX}/`)}>目次</button>
+          {/* ここを修正：basePath を手動で付けず、'/' へ遷移（Next が自動で basePath を付与） */}
+          <button className="ghost" onClick={() => router.push('/')}>目次</button>
           <div className="title">{baseName}</div>
           <div style={{ flex: 1 }} />
           <button className="ghost" onClick={undoLast}>戻る</button>
