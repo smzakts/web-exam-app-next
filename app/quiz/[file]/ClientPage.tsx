@@ -23,11 +23,33 @@ type Result = {
 const KANA_LABELS = ['イ', 'ロ', 'ハ', 'ニ', 'ホ', 'ヘ', 'ト'] as const;
 const NUM_LABELS  = ['1', '2', '3', '4', '5', '6', '7'] as const;
 
-// ← ここがポイント：basePath をクライアント側で使えるように
-const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || '';
+/** ランタイムで basePath/assetPrefix を安全に取得 */
+function getPrefix(): string {
+  // ビルド時に埋め込まれる値（GitHub Actions 上では "/<repo>"）
+  const envPrefix = process.env.NEXT_PUBLIC_BASE_PATH || '';
+  if (envPrefix) return envPrefix;
+
+  // Next.js が __NEXT_DATA__ に埋める assetPrefix（静的出力でも入ることがある）
+  if (typeof window !== 'undefined') {
+    const anyWin = window as any;
+    const runtime = anyWin.__NEXT_DATA__?.assetPrefix;
+    if (typeof runtime === 'string' && runtime.length > 0) return runtime;
+  }
+
+  // 最後の保険：プロジェクトページのときは最初のパスセグメントがリポジトリ名になっていることが多い
+  if (typeof window !== 'undefined') {
+    const segs = window.location.pathname.split('/').filter(Boolean);
+    if (segs.length > 0) {
+      // 例: /web-exam-app-next/quiz/... → "/web-exam-app-next"
+      return `/${segs[0]}`;
+    }
+  }
+  return '';
+}
 
 export default function ClientPage({ fileParam }: { fileParam: string }) {
   const router = useRouter();
+  const PREFIX = getPrefix();
 
   const fileRaw = decodeURIComponent(fileParam);
   const baseName = fileRaw.replace(/\.csv$/i, '');
@@ -41,6 +63,8 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const [isSmall, setIsSmall] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 860px)');
     const apply = () => setIsSmall(mq.matches);
@@ -82,26 +106,47 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
     });
   };
 
+  /** フェッチを複数の候補でトライ（GitHub Pages でのパスずれ対策） */
+  async function fetchWithFallbacks(path: string): Promise<Response> {
+    const candidates = [
+      `${PREFIX}${path}`,  // 最優先：/repo/path
+      path,               // ルート直下：/path
+    ];
+    let lastErr: any = null;
+    for (const url of candidates) {
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (res.ok) return res;
+        lastErr = new Error(`HTTP ${res.status} for ${url}`);
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr ?? new Error('fetch failed');
+  }
+
+  // CSV読み込み
   useEffect(() => {
     const run = async () => {
       setQuizData([]);
       setResults([]);
       setViewIndex(0);
       setMaxRevealed(1);
+      setLoadError(null);
       try {
-        // ← basePath 対応
-        const res = await fetch(`${BASE_PATH}/csv/${fileRaw}`, { cache: 'no-store' });
-        if (!res.ok) throw new Error(`CSVの取得に失敗しました (${res.status})`);
+        const res = await fetchWithFallbacks(`/csv/${fileRaw}`);
         const text = await res.text();
         const rows = parseCsv(text);
         const data = rowsToQuizData(rows);
         setQuizData(data);
-      } catch (e) {
-        console.error(e);
+      } catch (e: any) {
+        console.error('CSV load failed:', e);
+        setLoadError(`CSVの読み込みに失敗しました。ファイル: ${fileRaw}`);
       }
     };
     run();
-  }, [fileRaw]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileRaw, PREFIX]);
 
   const undoLast = useCallback(() => {
     const lastIdx = [...results].map((r, i) => r ? i : -1).filter(i => i >= 0).pop();
@@ -166,12 +211,14 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
   const scoreText = `正答率: ${percentage}% (${correctCount}/${totalCount})`;
   const visibleCount = Math.min(maxRevealed, totalCount);
 
+  // 画像のパスも PREFIX を付与
+  const imgSrc = (name: string) => `${PREFIX}/img/${name}`;
+
   return (
     <>
       <div className="global-header">
         <div className="bar">
-          {/* ← basePath を付けたトップへ戻る */}
-          <button className="ghost" onClick={() => router.push(`${BASE_PATH}/`)}>目次</button>
+          <button className="ghost" onClick={() => router.push(`${PREFIX}/`)}>目次</button>
           <div className="title">{baseName}</div>
           <div style={{ flex: 1 }} />
           <button className="ghost" onClick={undoLast}>戻る</button>
@@ -221,11 +268,7 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
                   const isCurrent = i === viewIndex;
                   return (
                     <tr key={i} className={isCurrent ? 'current' : ''}>
-                      <td
-                        className="clickable"
-                        onClick={() => openQuestion(i)}
-                        title="この問題を表示"
-                      >
+                      <td className="clickable" onClick={() => openQuestion(i)} title="この問題を表示">
                         {q.number || i + 1}
                       </td>
                       <td>{r?.selected ?? ''}</td>
@@ -243,13 +286,17 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
 
         <section className="main">
           <div className="question-card">
-            {totalCount === 0 && <p style={{ margin: 0 }}>CSVを読み込んでいます…</p>}
-            {totalCount > 0 && currentQuestion && (
+            {loadError && (
+              <p style={{ margin: 0, color: 'var(--danger)' }}>
+                {loadError}
+              </p>
+            )}
+            {!loadError && totalCount === 0 && <p style={{ margin: 0 }}>CSVを読み込んでいます…</p>}
+            {!loadError && totalCount > 0 && currentQuestion && (
               <>
                 <p className="question-text">{currentQuestion.question}</p>
                 {currentQuestion.image && (
-                  // ← basePath を付与
-                  <img className="question-image" src={`${BASE_PATH}/img/${currentQuestion.image}`} alt="" />
+                  <img className="question-image" src={imgSrc(currentQuestion.image)} alt="" />
                 )}
               </>
             )}

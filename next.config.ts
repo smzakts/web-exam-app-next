@@ -1,26 +1,24 @@
-// next.config.ts
-import type { NextConfig } from 'next'
+/** @type {import('next').NextConfig} */
+const isGithubActions = process.env.GITHUB_ACTIONS === 'true';
+const repo = process.env.GITHUB_REPOSITORY ? process.env.GITHUB_REPOSITORY.split('/')[1] : '';
+const isUserOrOrgSite = repo && repo.endsWith('.github.io');
 
-const isGitHubPages = process.env.GITHUB_ACTIONS === 'true'
-const repoName = 'web-exam-app-next' // ← あなたのリポ名
+// Actions でのビルド時のみ basePath を付与（ユーザー/組織ページは除外）
+const basePath = isGithubActions && !isUserOrOrgSite ? `/${repo}` : '';
 
-const nextConfig: NextConfig = {
-  // GitHub Pages は静的ホスティング
+const nextConfig = {
+  // GitHub Pages で配信できるよう、静的書き出し
   output: 'export',
-
-  // 画像最適化サーバは使えないためオフ
+  // ルーティング用のベースパス（例: /web-exam-app-next）
+  basePath,
+  // アセットのパスもベースパス配下に
+  assetPrefix: basePath,
+  // 画像最適化を使わない（Pages でサーバー処理できないため）
   images: { unoptimized: true },
-
-  // サブパス対応（https://<user>.github.io/<repo>/）
-  basePath: isGitHubPages ? `/${repoName}` : undefined,
-  assetPrefix: isGitHubPages ? `/${repoName}/` : undefined,
-
-  // /a -> /a/index.html を出力
+  // /path/ のように末尾スラッシュを付けて 404 を回避
   trailingSlash: true,
+  // クライアント側でも basePath を参照できるよう公開
+  env: { NEXT_PUBLIC_BASE_PATH: basePath },
+};
 
-  // ▼ 応急処置：ESLint/TSエラーでビルドを止めない
-  eslint: { ignoreDuringBuilds: true },
-  typescript: { ignoreBuildErrors: true },
-}
-
-export default nextConfig
+module.exports = nextConfig;
