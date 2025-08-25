@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @next/next/no-img-element */
 // app/quiz/[file]/ClientPage.tsx
 'use client';
 
@@ -25,24 +27,18 @@ const NUM_LABELS  = ['1', '2', '3', '4', '5', '6', '7'] as const;
 
 /** ランタイムで basePath/assetPrefix を安全に取得 */
 function getPrefix(): string {
-  // ビルド時に埋め込まれる値（GitHub Actions 上では "/<repo>"）
   const envPrefix = process.env.NEXT_PUBLIC_BASE_PATH || '';
   if (envPrefix) return envPrefix;
 
-  // Next.js が __NEXT_DATA__ に埋める assetPrefix（静的出力でも入ることがある）
   if (typeof window !== 'undefined') {
     const anyWin = window as any;
     const runtime = anyWin.__NEXT_DATA__?.assetPrefix;
     if (typeof runtime === 'string' && runtime.length > 0) return runtime;
   }
 
-  // 最後の保険：プロジェクトページのときは最初のパスセグメントがリポジトリ名になっていることが多い
   if (typeof window !== 'undefined') {
     const segs = window.location.pathname.split('/').filter(Boolean);
-    if (segs.length > 0) {
-      // 例: /web-exam-app-next/quiz/... → "/web-exam-app-next"
-      return `/${segs[0]}`;
-    }
+    if (segs.length > 0) return `/${segs[0]}`;
   }
   return '';
 }
@@ -109,8 +105,8 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
   /** フェッチを複数の候補でトライ（GitHub Pages でのパスずれ対策） */
   async function fetchWithFallbacks(path: string): Promise<Response> {
     const candidates = [
-      `${PREFIX}${path}`,  // 最優先：/repo/path
-      path,               // ルート直下：/path
+      `${PREFIX}${path}`,
+      path,
     ];
     let lastErr: any = null;
     for (const url of candidates) {
@@ -118,7 +114,7 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
         const res = await fetch(url, { cache: 'no-store' });
         if (res.ok) return res;
         lastErr = new Error(`HTTP ${res.status} for ${url}`);
-      } catch (e) {
+      } catch (e: any) {
         lastErr = e;
       }
     }
@@ -211,7 +207,6 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
   const scoreText = `正答率: ${percentage}% (${correctCount}/${totalCount})`;
   const visibleCount = Math.min(maxRevealed, totalCount);
 
-  // 画像のパスも PREFIX を付与
   const imgSrc = (name: string) => `${PREFIX}/img/${name}`;
 
   return (
