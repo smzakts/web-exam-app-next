@@ -16,9 +16,16 @@
   --radius: 14px;
 
   --page-pad: 14px;
-  --col-gap: 14px;            /* 列ギャップ（トグル位置計算にも使用） */
-  --sidebar-w: 340px;         /* React が 340px / 50vw / 0px を上書き */
+  --col-gap: 14px;
   --header-h: 60px;
+
+  /* サイドバー幅（開）と現在幅（クラスで切り替え） */
+  --sidebar-open-w: 340px;
+  --sidebar-w: 0px; /* デフォルトは閉 */
+}
+
+@media (max-width: 860px) {
+  :root { --sidebar-open-w: 50vw; }
 }
 
 * { box-sizing: border-box; }
@@ -63,7 +70,7 @@ select {
   padding: 8px 10px;
 }
 
-/* === TOC（目次） === */
+/* === 目次ページ === */
 .toc-container { max-width: 980px; margin: 48px auto; padding: 0 18px; }
 .toc-title { font-size: 2.1rem; font-weight: 800; letter-spacing: .02em; margin: 0 0 20px; }
 .toc-card { background: linear-gradient(180deg, #121821, #0e141c); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
@@ -102,61 +109,96 @@ select {
   background: #101722; border: 1px solid #223245;
 }
 
+/* === ハンバーガー（ヘッダー内の左端） === */
+.hamburger-btn {
+  position: relative;
+  width: 34px; height: 30px;
+  display: inline-flex; flex-direction: column; justify-content: center;
+  margin-right: 6px;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid rgba(230,240,250,.28);
+  border-radius: 8px;
+  background: #0f1620;
+  padding: 8px;
+  box-shadow: inset 0 0 10px rgba(88,166,255,.08);
+  transition: border-color .2s ease, box-shadow .2s ease, background .2s ease, transform .06s ease;
+}
+.hamburger-btn:hover { border-color: rgba(88,166,255,.55); box-shadow: 0 0 0 3px rgba(88,166,255,.12), inset 0 0 10px rgba(88,166,255,.12); }
+.hamburger-btn:active { transform: scale(0.98); }
+.hamburger-btn .hb-line {
+  height: 2px; width: 100%; background-color: #e6f0fa; display: block; border-radius: 2px;
+  transition: transform .25s ease, opacity .25s ease, margin .25s ease;
+}
+.hamburger-btn .hb-line:nth-child(2) { margin: 6px 0; }
+/* 開いた時は「×」風に */
+.hamburger-btn.is-open .hb-line:nth-child(2) { opacity: 0; }
+.hamburger-btn.is-open .hb-line:nth-child(1) { transform: translateY(8px) rotate(45deg); }
+.hamburger-btn.is-open .hb-line:nth-child(3) { transform: translateY(-8px) rotate(-45deg); }
+
 /* === レイアウト（100dvh優先） === */
 .page-shell {
   display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;      /* ← React が 340px / 50vw / 0px をセット */
-  grid-template-rows: calc(100vh - var(--header-h));/* フォールバック */
+  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-rows: calc(100vh - var(--header-h)); /* fallback */
   gap: var(--col-gap);
   padding: calc(var(--page-pad) + var(--header-h)) var(--page-pad) var(--page-pad);
+  transition: grid-template-columns .38s cubic-bezier(.22,1.6,.24,1); /* ふわっと開閉 */
 }
 @supports(height: 100dvh) {
-  .page-shell {
-    grid-template-rows: calc(100dvh - var(--header-h)); /* iOSのUI伸縮でも高さが安定 */
-  }
+  .page-shell { grid-template-rows: calc(100dvh - var(--header-h)); }
 }
+/* React側のクラスで幅を切り替え */
+.page-shell.with-sidebar-open { --sidebar-w: var(--sidebar-open-w); }
+
+/* 弾む演出（開/閉それぞれで少しオーバーシュート） */
+@keyframes kickOpen {
+  0% { grid-template-columns: calc(var(--sidebar-open-w) * .96) 1fr; }
+  60% { grid-template-columns: calc(var(--sidebar-open-w) * 1.04) 1fr; }
+  100% { grid-template-columns: var(--sidebar-open-w) 1fr; }
+}
+@keyframes kickClose {
+  0% { grid-template-columns: calc(var(--sidebar-open-w) * .06) 1fr; }
+  60% { grid-template-columns: calc(var(--sidebar-open-w) * -.04) 1fr; }
+  100% { grid-template-columns: 0px 1fr; }
+}
+.page-shell.sidebar-kick-open.with-sidebar-open { animation: kickOpen .38s ease-out; }
+.page-shell.sidebar-kick-close:not(.with-sidebar-open) { animation: kickClose .32s ease-out; }
 
 /* --- 左サイドバー --- */
 .sidebar {
+  position: relative;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #0e141c, #0c1219);
+  background: linear-gradient(180deg, #0f1722, #0b1118);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   overflow: hidden;
   min-width: 0;
-  transition: opacity .3s ease;
-  opacity: 1;
+  opacity: 0; pointer-events: none; /* デフォルト非表示 */
+  transition: opacity .18s ease .12s;
 }
-.sidebar.hidden { opacity: 0; pointer-events: none; }
+.page-shell.with-sidebar-open .sidebar { opacity: 1; pointer-events: auto; }
+
+/* 参考デザインの“縦カーブ”を擬似要素で演出 */
+.sidebar .sidebar-curtain {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 -24px; /* 左外側まで広げて曲線感を出す */
+  width: 48px;
+  background:
+    radial-gradient(38px 220px at 44px 50%, rgba(255,255,255,.08), transparent 60%),
+    radial-gradient(28px 220px at 40px 50%, rgba(88,166,255,.06), transparent 60%);
+  pointer-events: none;
+  filter: blur(0.3px);
+}
+
+/* ヘッダー */
 .sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px; border-bottom: 1px solid #1b2735; background: #0f1620; }
 .sidebar-title { font-weight: 700; letter-spacing: .02em; }
 
-/* === サイドバー開閉（« / »） === */
-.sidebar-toggle {
-  position: fixed;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 1200;
-  width: 40px; height: 40px; padding: 0;
-  border-radius: 50%;
-  border: 1px solid rgba(230, 240, 250, 0.35);
-  background: #0f1620;
-  box-shadow: 0 6px 14px rgba(0,0,0,.3), inset 0 0 8px rgba(88,166,255,.2);
-  color: #e6f0fa;
-  font-weight: 900; font-size: 26px; line-height: 1;
-  display: flex; align-items: center; justify-content: center;
-  text-align: center; cursor: pointer;
-  transition: left .4s ease, box-shadow .25s ease, background .25s ease, border-color .25s ease, transform .06s ease;
-}
-.sidebar-toggle:hover { border-color: rgba(88,166,255,0.55); box-shadow: 0 8px 18px rgba(0,0,0,.45), 0 0 0 3px rgba(88,166,255,.15), inset 0 0 10px rgba(88,166,255,.25); }
-.sidebar-toggle:active { transform: translateY(-50%) scale(0.96); }
-/* ギャップ中央（円の中心が境界） */
-.sidebar-toggle.at-boundary { left: calc(var(--page-pad) + var(--sidebar-w) + (var(--col-gap) / 2) - 20px); }
-.sidebar-toggle.at-left     { left: calc(var(--page-pad) + 10px); }
-
-/* === スコア＆履歴（デフォルト） === */
+/* === スコア＆履歴 === */
 .score { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #1b2735; }
 .score .value { font-weight: 800; color: var(--accent-2); }
 .history { flex: 1; overflow: auto; }
@@ -171,13 +213,18 @@ select {
 .history thead th { position: sticky; top: 0; background: #0f1620; z-index: 1; }
 .history td.clickable { color: #9bd1ff; cursor: pointer; }
 .history td.clickable:hover { text-decoration: underline; }
-.history tr.current { background: linear-gradient(180deg, rgba(16, 23, 34, .98), rgba(10, 16, 23, .98)); box-shadow: inset 0 0 0 1px #3a5f88, inset 4px 0 0 var(--accent); }
-.history tr.current td:first-child { font-weight: 900; letter-spacing: .02em; color: #d7ecff; text-shadow: 0 0 6px rgba(88,166,255,.35); }
+.history tr.current {
+  background: linear-gradient(180deg, rgba(16, 23, 34, .98), rgba(10, 16, 23, .98));
+  box-shadow: inset 0 0 0 1px #3a5f88, inset 4px 0 0 var(--accent);
+}
+.history tr.current td:first-child {
+  font-weight: 900; letter-spacing: .02em; color: #d7ecff; text-shadow: 0 0 6px rgba(88,166,255,.35);
+}
 
 /* --- 右カラム（上下 1:1 固定） --- */
 .main {
   display: grid;
-  grid-template-rows: 1fr 1fr;    /* ← 上：問題、下：選択肢 を必ず半々に */
+  grid-template-rows: 1fr 1fr;    /* 上：問題、下：選択肢 を半々に固定 */
   min-width: 0;
 }
 
@@ -188,8 +235,8 @@ select {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 14px;
-  overflow: auto;                 /* 内部スクロール */
-  min-height: 0;                  /* grid子の縮み許可（重要） */
+  overflow: auto;
+  min-height: 0;
   scrollbar-width: none; -ms-overflow-style: none;
 }
 .question-card::-webkit-scrollbar { display: none; }
@@ -203,8 +250,8 @@ select {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 10px;
-  overflow: auto;                 /* 内部スクロール */
-  min-height: 0;                  /* 重要：半分に収まる */
+  overflow: auto;
+  min-height: 0;
   scrollbar-width: none; -ms-overflow-style: none;
 }
 .choices-card::-webkit-scrollbar { display: none; }
@@ -238,19 +285,15 @@ select {
 }
 .choice-text { color: var(--text); }
 
-/* ======== モバイル最適化：iPhone等でもサイドバー4列を表示する ======== */
-
-/* 860px以下：やや圧縮（タブレット縦～大きめスマホ） */
+/* ======== モバイル調整（サイドバー4列を維持） ======== */
 @media (max-width: 860px) {
-  .history table { table-layout: fixed; }                 /* 列幅を固定配分 */
+  .history table { table-layout: fixed; }
   .history th, .history td { font-size: 0.85rem; padding: 6px 4px; }
-  .history th:nth-child(1), .history td:nth-child(1) { width: 18%; } /* No   */
-  .history th:nth-child(2), .history td:nth-child(2) { width: 22%; } /* 選択 */
-  .history th:nth-child(3), .history td:nth-child(3) { width: 28%; } /* 判定 */
-  .history th:nth-child(4), .history td:nth-child(4) { width: 32%; } /* 解答 */
+  .history th:nth-child(1), .history td:nth-child(1) { width: 18%; }
+  .history th:nth-child(2), .history td:nth-child(2) { width: 22%; }
+  .history th:nth-child(3), .history td:nth-child(3) { width: 28%; }
+  .history th:nth-child(4), .history td:nth-child(4) { width: 32%; }
 }
-
-/* 430px以下：さらに圧縮（iPhone 12 Pro Max 縦 428px 程度を想定） */
 @media (max-width: 430px) {
   .history th, .history td { font-size: 0.78rem; padding: 5px 3px; }
   .history th:nth-child(1), .history td:nth-child(1) { width: 16%; }
@@ -258,8 +301,6 @@ select {
   .history th:nth-child(3), .history td:nth-child(3) { width: 30%; }
   .history th:nth-child(4), .history td:nth-child(4) { width: 32%; }
 }
-
-/* 380px以下：最小端末向け（SE等） */
 @media (max-width: 380px) {
   .history th, .history td { font-size: 0.72rem; padding: 4px 2px; }
   .history th:nth-child(1), .history td:nth-child(1) { width: 16%; }
@@ -267,3 +308,6 @@ select {
   .history th:nth-child(3), .history td:nth-child(3) { width: 30%; }
   .history th:nth-child(4), .history td:nth-child(4) { width: 32%; }
 }
+
+/* === 旧 « / » ボタンは廃止（保険で無効化） === */
+.sidebar-toggle { display: none !important; }

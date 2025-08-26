@@ -3,7 +3,7 @@
 // app/quiz/[file]/ClientPage.tsx
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 type Quiz = {
@@ -23,9 +23,9 @@ type Result = {
 };
 
 const KANA_LABELS = ['イ', 'ロ', 'ハ', 'ニ', 'ホ', 'ヘ', 'ト'] as const;
-const NUM_LABELS  = ['1', '2',  '3',  '4',  '5',  '6',  '7'] as const;
+const NUM_LABELS  = ['1', '2', '3', '4', '5', '6', '7'] as const;
 
-/** ランタイムで basePath/assetPrefix を安全に取得（静的ファイル用） */
+/** 静的ファイル取得用のプレフィックス（GitHub Pages対策） */
 function getPrefix(): string {
   const envPrefix = process.env.NEXT_PUBLIC_BASE_PATH || '';
   if (envPrefix) return envPrefix;
@@ -45,7 +45,7 @@ function getPrefix(): string {
 
 export default function ClientPage({ fileParam }: { fileParam: string }) {
   const router = useRouter();
-  const PREFIX = getPrefix(); // 画像/CSVの取得にのみ使用（ルーター遷移には使わない）
+  const PREFIX = getPrefix(); // 画像/CSV の取得のみで使用
 
   const fileRaw = decodeURIComponent(fileParam);
   const baseName = fileRaw.replace(/\.csv$/i, '');
@@ -56,10 +56,31 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
 
   const [viewIndex, setViewIndex] = useState<number>(0);
   const [maxRevealed, setMaxRevealed] = useState<number>(1);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // サイドバー開閉（参考デザイン風の弾むアニメあり）
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // iPhone等のレイアウト調整用
   const [isSmall, setIsSmall] = useState(false);
+
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // 参考デザインの“弾む”感じを付与するため、短い「オーバーシュート」アニメをCSSで再現。
+  // ボタンを素早く連打してもアニメが破綻しないよう、クラスを一瞬付けるだけの仕組み。
+  const [elasticKick, setElasticKick] = useState<'open'|'close'|null>(null);
+  const kickTimerRef = useRef<number | null>(null);
+
+  const triggerElastic = (type: 'open'|'close') => {
+    if (kickTimerRef.current) {
+      window.clearTimeout(kickTimerRef.current);
+      kickTimerRef.current = null;
+    }
+    setElasticKick(type);
+    kickTimerRef.current = window.setTimeout(() => {
+      setElasticKick(null);
+      kickTimerRef.current = null;
+    }, 500);
+  };
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 860px)');
@@ -67,6 +88,12 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
     apply();
     mq.addEventListener?.('change', apply);
     return () => mq.removeEventListener?.('change', apply);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (kickTimerRef.current) window.clearTimeout(kickTimerRef.current);
+    };
   }, []);
 
   const totalCount = quizData.length;
@@ -104,10 +131,7 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
 
   /** フェッチを複数候補でトライ（GitHub Pages のパスずれ対策） */
   async function fetchWithFallbacks(path: string): Promise<Response> {
-    const candidates = [
-      `${PREFIX}${path}`, // /repo/path
-      path,               // /path
-    ];
+    const candidates = [`${PREFIX}${path}`, path];
     let lastErr: any = null;
     for (const url of candidates) {
       try {
@@ -200,23 +224,45 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
     setViewIndex(i);
   };
 
-  const sidebarWidth = sidebarOpen
-    ? (isSmall ? '50vw' : '340px')
-    : '0px';
-
   const scoreText = `正答率: ${percentage}% (${correctCount}/${totalCount})`;
   const visibleCount = Math.min(maxRevealed, totalCount);
 
   const imgSrc = (name: string) => `${PREFIX}/img/${name}`;
 
+  const onToggleSidebar = () => {
+    setSidebarOpen(prev => {
+      const next = !prev;
+      triggerElastic(next ? 'open' : 'close');
+      return next;
+    });
+  };
+
   return (
     <>
+      {/* === 固定ヘッダー === */}
       <div className="global-header">
         <div className="bar">
-          {/* ここを修正：basePath を手動で付けず、'/' へ遷移（Next が自動で basePath を付与） */}
+          {/* ハンバーガー（目次ボタンの左） */}
+          <button
+            className={`hamburger-btn ${sidebarOpen ? 'is-open' : ''}`}
+            aria-label="サイドバーを開閉"
+            aria-pressed={sidebarOpen}
+            onClick={onToggleSidebar}
+          >
+            <span className="hb-line" />
+            <span className="hb-line" />
+            <span className="hb-line" />
+          </button>
+
+          {/* 目次 */}
           <button className="ghost" onClick={() => router.push('/')}>目次</button>
+
+          {/* タイトル */}
           <div className="title">{baseName}</div>
+
           <div style={{ flex: 1 }} />
+
+          {/* 操作 */}
           <button className="ghost" onClick={undoLast}>戻る</button>
           <button onClick={resetQuiz}>リトライ</button>
           <select
@@ -230,16 +276,18 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
         </div>
       </div>
 
-      <button
-        className={`sidebar-toggle ${sidebarOpen ? 'at-boundary' : 'at-left'}`}
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-        aria-label={sidebarOpen ? 'サイドバーを閉じる' : 'サイドバーを開く'}
+      {/* === 本体（サイドバーは state で開閉） === */}
+      <div
+        className={[
+          'page-shell',
+          sidebarOpen ? 'with-sidebar-open' : '',
+          elasticKick === 'open' ? 'sidebar-kick-open' : '',
+          elasticKick === 'close' ? 'sidebar-kick-close' : '',
+        ].join(' ').trim()}
       >
-        {sidebarOpen ? '«' : '»'}
-      </button>
-
-      <div className="page-shell" style={{ ['--sidebar-w' as any]: sidebarWidth }}>
-        <aside className={`sidebar ${sidebarOpen ? '' : 'hidden'}`}>
+        {/* 左：サイドバー（参考デザイン風のグラデ＋縦カーブ演出） */}
+        <aside className="sidebar" id="sidebarMenu" aria-hidden={!sidebarOpen}>
+          <div className="sidebar-curtain" aria-hidden="true" />
           <div className="sidebar-head">
             <div className="sidebar-title">履歴とスコア</div>
           </div>
@@ -280,7 +328,9 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
           </div>
         </aside>
 
+        {/* 右：問題エリア（上下 1:1 固定） */}
         <section className="main">
+          {/* 上：問題 */}
           <div className="question-card">
             {loadError && (
               <p style={{ margin: 0, color: 'var(--danger)' }}>
@@ -298,6 +348,7 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
             )}
           </div>
 
+          {/* 下：選択肢 */}
           <div className="choices-card">
             {currentQuestion?.type === '2' && (
               <div className="tf-row">
