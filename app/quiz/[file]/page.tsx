@@ -15,7 +15,8 @@ export async function generateStaticParams(): Promise<Params[]> {
   }
 }
 
-export default function Page({ params }: { params: Params }) {
-  const { file } = params;
+// ✅ あなたの環境の型に合わせて Promise<Params> を受け取る
+export default async function Page({ params }: { params: Promise<Params> }) {
+  const { file } = await params;
   return <ClientPage fileParam={file} />;
 }
