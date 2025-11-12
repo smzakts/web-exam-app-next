@@ -40,6 +40,48 @@ export default async function Page() {
   const items = collectCsvItems(dir).sort((a, b) => a.href.localeCompare(b.href, 'ja'));
 
   return (
+    <ul className="toc-sublist">
+      {entries.map(entry => {
+        if (entry.kind === 'file') {
+          return (
+            <li key={entry.href} className="toc-subitem">
+              <Link
+                href={entry.href}
+                className="toc-link"
+                style={{ paddingLeft: linkPadding(depth) }}
+              >
+                <span>{entry.name}</span>
+                <span>→</span>
+              </Link>
+            </li>
+          );
+        }
+
+        return (
+          <li key={entry.path.join('/') || entry.name} className="toc-subfolder">
+            <details>
+              <summary
+                className="toc-summary"
+                style={{ paddingLeft: summaryPadding(depth + 1) }}
+              >
+                <span>{entry.name}</span>
+                <span aria-hidden className="toc-folder-indicator" />
+              </summary>
+              <FolderEntries entries={entry.entries} depth={depth + 1} />
+            </details>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+export default async function Page() {
+  // public/csv の一覧を取得（サーバー側）
+  const dir = path.join(process.cwd(), 'public', 'csv');
+  const toc = buildTocData(dir);
+
+  return (
     <>
       {/* === 背景（静かで落ち着いた動き・ClientPage と同テイスト） === */}
       <div className="bg-canvas-wrap" aria-hidden>
