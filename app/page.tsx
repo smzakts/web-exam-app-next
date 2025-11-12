@@ -5,19 +5,38 @@ import Link from 'next/link';
 
 type CsvItem = { name: string; href: string };
 
+function collectCsvItems(dir: string, parents: string[] = []): CsvItem[] {
+  let dirents: fs.Dirent[] = [];
+  try {
+    dirents = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  dirents.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+
+  const items: CsvItem[] = [];
+  for (const entry of dirents) {
+    if (entry.name.startsWith('.')) continue;
+    const nextPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      items.push(...collectCsvItems(nextPath, [...parents, entry.name]));
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.csv')) {
+      const segments = [...parents, entry.name];
+      const display = segments
+        .map((seg, idx) => (idx === segments.length - 1 ? seg.replace(/\.csv$/i, '') : seg))
+        .join(' / ');
+      const href = `/quiz/${segments.map(encodeURIComponent).join('/')}`;
+      items.push({ name: display, href });
+    }
+  }
+  return items;
+}
+
 export default async function Page() {
   // public/csv の一覧を取得（サーバー側）
   const dir = path.join(process.cwd(), 'public', 'csv');
-  let items: CsvItem[] = [];
-  try {
-    const files = fs.readdirSync(dir).filter(f => f.toLowerCase().endsWith('.csv'));
-    items = files.map(f => ({
-      name: f.replace(/\.csv$/i, ''),
-      href: `/quiz/${encodeURIComponent(f)}`,
-    }));
-  } catch {
-    // CSVがなくてもページは表示
-  }
+  const items = collectCsvItems(dir).sort((a, b) => a.href.localeCompare(b.href, 'ja'));
 
   return (
     <>

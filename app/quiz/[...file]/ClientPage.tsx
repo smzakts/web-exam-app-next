@@ -276,7 +276,12 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
   const PREFIX = getPrefix(); // 画像/CSV の取得のみで使用
 
   const fileRaw = decodeURIComponent(fileParam);
-  const baseName = fileRaw.replace(/\.csv$/i, '');
+  const baseName = fileRaw
+    .replace(/\.csv$/i, '')
+    .split('/')
+    .map((seg) => seg.trim())
+    .filter(Boolean)
+    .join(' / ');
 
   const [quizData, setQuizData] = useState<Quiz[]>([]);
   const [results, setResults] = useState<Array<Result | undefined>>([]);
@@ -287,9 +292,6 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
 
   // サイドバー開閉（参考デザイン風の弾むアニメあり）
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  // iPhone等のレイアウト調整用（今は未使用だが将来的に）
-  const [isSmall, setIsSmall] = useState(false);
 
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -308,14 +310,6 @@ export default function ClientPage({ fileParam }: { fileParam: string }) {
       kickTimerRef.current = null;
     }, 500);
   };
-
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 860px)');
-    const apply = () => setIsSmall(mq.matches);
-    apply();
-    mq.addEventListener?.('change', apply);
-    return () => mq.removeEventListener?.('change', apply);
-  }, []);
 
   useEffect(() => {
     return () => {
