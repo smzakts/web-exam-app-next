@@ -3,8 +3,14 @@ import fs from 'fs';
 import path from 'path';
 import Link from 'next/link';
 
-type CsvFile = { name: string; href: string };
-type CsvFolder = { name: string; files: CsvFile[] };
+type CsvFile = { kind: 'file'; name: string; href: string };
+type CsvFolder = {
+  kind: 'folder';
+  name: string;
+  path: string[];
+  entries: CsvEntry[];
+};
+type CsvEntry = CsvFile | CsvFolder;
 type TocData = { folders: CsvFolder[]; rootFiles: CsvFile[] };
 
 function safeReadDir(dir: string): fs.Dirent[] {
@@ -16,29 +22,48 @@ function safeReadDir(dir: string): fs.Dirent[] {
   }
 }
 
-function collectFolderFiles(
-  baseDir: string,
-  folderName: string,
-  parents: string[] = [],
-): CsvFile[] {
-  const currentDir = path.join(baseDir, ...parents);
-  const dirents = safeReadDir(currentDir);
-  dirents.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
-  const files: CsvFile[] = [];
+const SUMMARY_BASE = 20;
+const LINK_BASE = 36;
+const INDENT_STEP = 16;
 
+function summaryPadding(depth: number): string {
+  return `${SUMMARY_BASE + depth * INDENT_STEP}px`;
+}
+
+function linkPadding(depth: number): string {
+  return `${LINK_BASE + depth * INDENT_STEP}px`;
+}
+
+function buildFolderEntries(absDir: string, segments: string[]): CsvEntry[] {
+  const dirents = safeReadDir(absDir);
+  dirents.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+
+  const entries: CsvEntry[] = [];
   for (const entry of dirents) {
+    const entryPath = path.join(absDir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...collectFolderFiles(baseDir, folderName, [...parents, entry.name]));
+      const folderSegments = [...segments, entry.name];
+      entries.push(buildFolder(entryPath, folderSegments));
     } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.csv')) {
-      const relativeSegments = [...parents, entry.name.replace(/\.csv$/i, '')];
-      const displayName = relativeSegments.join(' / ') || entry.name.replace(/\.csv$/i, '');
-      const hrefSegments = [folderName, ...parents, entry.name].map(encodeURIComponent);
-      files.push({ name: displayName, href: `/quiz/${hrefSegments.join('/')}` });
+      const hrefSegments = [...segments, entry.name].map(encodeURIComponent);
+      entries.push({
+        kind: 'file',
+        name: entry.name.replace(/\.csv$/i, ''),
+        href: `/quiz/${hrefSegments.join('/')}`,
+      });
     }
   }
 
-  files.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
-  return files;
+  return entries;
+}
+
+function buildFolder(absDir: string, segments: string[]): CsvFolder {
+  return {
+    kind: 'folder',
+    name: segments[segments.length - 1] ?? '',
+    path: segments,
+    entries: buildFolderEntries(absDir, segments),
+  };
 }
 
 function buildTocData(dir: string): TocData {
@@ -51,16 +76,65 @@ function buildTocData(dir: string): TocData {
   for (const entry of dirents) {
     const entryPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      const files = collectFolderFiles(entryPath, entry.name);
-      folders.push({ name: entry.name, files });
+      folders.push(buildFolder(entryPath, [entry.name]));
     } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.csv')) {
       const href = `/quiz/${encodeURIComponent(entry.name)}`;
-      rootFiles.push({ name: entry.name.replace(/\.csv$/i, ''), href });
+      rootFiles.push({
+        kind: 'file',
+        name: entry.name.replace(/\.csv$/i, ''),
+        href,
+      });
     }
   }
 
   rootFiles.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
   return { folders, rootFiles };
+}
+
+function FolderEntries({ entries, depth }: { entries: CsvEntry[]; depth: number }) {
+  if (entries.length === 0) {
+    return (
+      <div className="toc-empty" style={{ paddingLeft: linkPadding(depth) }}>
+        CSV ファイルが見つかりませんでした。
+      </div>
+    );
+  }
+
+  return (
+    <ul className="toc-sublist">
+      {entries.map(entry => {
+        if (entry.kind === 'file') {
+          return (
+            <li key={entry.href} className="toc-subitem">
+              <Link
+                href={entry.href}
+                className="toc-link"
+                style={{ paddingLeft: linkPadding(depth) }}
+              >
+                <span>{entry.name}</span>
+                <span>→</span>
+              </Link>
+            </li>
+          );
+        }
+
+        return (
+          <li key={entry.path.join('/') || entry.name} className="toc-subfolder">
+            <details>
+              <summary
+                className="toc-summary"
+                style={{ paddingLeft: summaryPadding(depth + 1) }}
+              >
+                <span>{entry.name}</span>
+                <span aria-hidden className="toc-folder-indicator" />
+              </summary>
+              <FolderEntries entries={entry.entries} depth={depth + 1} />
+            </details>
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 export default async function Page() {
@@ -216,33 +290,28 @@ export default async function Page() {
         <div className="toc-card">
           <ul className="toc-list">
             {toc.folders.map(folder => (
-              <li key={folder.name} className="toc-folder">
+              <li key={folder.path.join('/')} className="toc-folder">
                 <details>
-                  <summary>
+                  <summary
+                    className="toc-summary"
+                    data-root="true"
+                    style={{ paddingLeft: summaryPadding(0) }}
+                  >
                     <span>{folder.name}</span>
                     <span aria-hidden className="toc-folder-indicator" />
                   </summary>
-                  {folder.files.length > 0 ? (
-                    <ul className="toc-sublist">
-                      {folder.files.map(file => (
-                        <li key={file.href} className="toc-subitem">
-                          <Link href={file.href}>
-                            <span>{file.name}</span>
-                            <span>→</span>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="toc-empty">CSV ファイルが見つかりませんでした。</div>
-                  )}
+                  <FolderEntries entries={folder.entries} depth={0} />
                 </details>
               </li>
             ))}
 
             {toc.rootFiles.map(file => (
               <li key={file.href} className="toc-item">
-                <Link href={file.href}>
+                <Link
+                  href={file.href}
+                  className="toc-link"
+                  style={{ paddingLeft: summaryPadding(0), paddingTop: '18px', paddingBottom: '18px' }}
+                >
                   <span>{file.name}</span>
                   <span>→</span>
                 </Link>
