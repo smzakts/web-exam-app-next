@@ -3,21 +3,70 @@ import fs from 'fs';
 import path from 'path';
 import Link from 'next/link';
 
-type CsvItem = { name: string; href: string };
+type CsvFile = { name: string; href: string };
+type CsvFolder = { name: string; files: CsvFile[] };
+type TocData = { folders: CsvFolder[]; rootFiles: CsvFile[] };
+
+function safeReadDir(dir: string): fs.Dirent[] {
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    return entries.filter(entry => !entry.name.startsWith('.'));
+  } catch {
+    return [];
+  }
+}
+
+function collectFolderFiles(
+  baseDir: string,
+  folderName: string,
+  parents: string[] = [],
+): CsvFile[] {
+  const currentDir = path.join(baseDir, ...parents);
+  const dirents = safeReadDir(currentDir);
+  dirents.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+  const files: CsvFile[] = [];
+
+  for (const entry of dirents) {
+    if (entry.isDirectory()) {
+      files.push(...collectFolderFiles(baseDir, folderName, [...parents, entry.name]));
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.csv')) {
+      const relativeSegments = [...parents, entry.name.replace(/\.csv$/i, '')];
+      const displayName = relativeSegments.join(' / ') || entry.name.replace(/\.csv$/i, '');
+      const hrefSegments = [folderName, ...parents, entry.name].map(encodeURIComponent);
+      files.push({ name: displayName, href: `/quiz/${hrefSegments.join('/')}` });
+    }
+  }
+
+  files.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+  return files;
+}
+
+function buildTocData(dir: string): TocData {
+  const dirents = safeReadDir(dir);
+  dirents.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+
+  const folders: CsvFolder[] = [];
+  const rootFiles: CsvFile[] = [];
+
+  for (const entry of dirents) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const files = collectFolderFiles(entryPath, entry.name);
+      folders.push({ name: entry.name, files });
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.csv')) {
+      const href = `/quiz/${encodeURIComponent(entry.name)}`;
+      rootFiles.push({ name: entry.name.replace(/\.csv$/i, ''), href });
+    }
+  }
+
+  rootFiles.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+  return { folders, rootFiles };
+}
 
 export default async function Page() {
   // public/csv の一覧を取得（サーバー側）
   const dir = path.join(process.cwd(), 'public', 'csv');
-  let items: CsvItem[] = [];
-  try {
-    const files = fs.readdirSync(dir).filter(f => f.toLowerCase().endsWith('.csv'));
-    items = files.map(f => ({
-      name: f.replace(/\.csv$/i, ''),
-      href: `/quiz/${encodeURIComponent(f)}`,
-    }));
-  } catch {
-    // CSVがなくてもページは表示
-  }
+  const toc = buildTocData(dir);
 
   return (
     <>
@@ -166,15 +215,41 @@ export default async function Page() {
         <h1 className="toc-title">試験問題 目次</h1>
         <div className="toc-card">
           <ul className="toc-list">
-            {items.map(item => (
-              <li key={item.href} className="toc-item">
-                <Link href={item.href}>
-                  <span>{item.name}</span>
+            {toc.folders.map(folder => (
+              <li key={folder.name} className="toc-folder">
+                <details>
+                  <summary>
+                    <span>{folder.name}</span>
+                    <span aria-hidden className="toc-folder-indicator" />
+                  </summary>
+                  {folder.files.length > 0 ? (
+                    <ul className="toc-sublist">
+                      {folder.files.map(file => (
+                        <li key={file.href} className="toc-subitem">
+                          <Link href={file.href}>
+                            <span>{file.name}</span>
+                            <span>→</span>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="toc-empty">CSV ファイルが見つかりませんでした。</div>
+                  )}
+                </details>
+              </li>
+            ))}
+
+            {toc.rootFiles.map(file => (
+              <li key={file.href} className="toc-item">
+                <Link href={file.href}>
+                  <span>{file.name}</span>
                   <span>→</span>
                 </Link>
               </li>
             ))}
-            {items.length === 0 && (
+
+            {toc.folders.length === 0 && toc.rootFiles.length === 0 && (
               <li className="toc-item" style={{ opacity: 0.8, padding: '18px 20px' }}>
                 <span>public/csv フォルダに CSV が見つかりませんでした。</span>
               </li>
