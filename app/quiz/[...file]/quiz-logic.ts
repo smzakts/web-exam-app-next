@@ -58,12 +58,13 @@ export function decodeFileParam(fileParam: string): {
 }
 
 export function parseCsvText(text: string): string[][] {
-  const normalized = text.replace(/\r\n?/g, '\n');
+  const normalized = text.replace(/^\ufeff/, '').replace(/\r\n?/g, '\n');
 
   const rows: string[][] = [];
   let currentRow: string[] = [];
   let currentCell = '';
   let inQuotes = false;
+  let justSawDelimiter = true;
 
   const pushRow = () => {
     if (currentRow.length === 0) return;
@@ -72,6 +73,15 @@ export function parseCsvText(text: string): string[][] {
       rows.push(currentRow);
     }
     currentRow = [];
+  };
+
+  const findNextNonLineBreak = (startIndex: number) => {
+    for (let cursor = startIndex; cursor < normalized.length; cursor += 1) {
+      const candidate = normalized[cursor]!;
+      if (candidate === '\n') continue;
+      return cursor;
+    }
+    return -1;
   };
 
   for (let index = 0; index < normalized.length; index += 1) {
@@ -83,6 +93,7 @@ export function parseCsvText(text: string): string[][] {
         index += 1;
       } else {
         inQuotes = !inQuotes;
+        justSawDelimiter = false;
       }
       continue;
     }
@@ -90,17 +101,28 @@ export function parseCsvText(text: string): string[][] {
     if (char === ',' && !inQuotes) {
       currentRow.push(currentCell);
       currentCell = '';
+      justSawDelimiter = true;
       continue;
     }
 
     if (char === '\n' && !inQuotes) {
+      if (justSawDelimiter) {
+        const nextIndex = findNextNonLineBreak(index + 1);
+        if (nextIndex >= 0 && normalized[nextIndex] === '"') {
+          index = nextIndex - 1;
+          continue;
+        }
+      }
+
       currentRow.push(currentCell);
       currentCell = '';
       pushRow();
+      justSawDelimiter = true;
       continue;
     }
 
     currentCell += char;
+    justSawDelimiter = false;
   }
 
   currentRow.push(currentCell);
