@@ -58,12 +58,77 @@ export function decodeFileParam(fileParam: string): {
 }
 
 export function parseCsvText(text: string): string[][] {
-  return text
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .split('\n')
-    .filter(line => line.trim() !== '')
-    .map(line => line.split(','));
+  const normalized = text.replace(/^\ufeff/, '').replace(/\r\n?/g, '\n');
+
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentCell = '';
+  let inQuotes = false;
+  let justSawDelimiter = true;
+
+  const pushRow = () => {
+    if (currentRow.length === 0) return;
+    const hasContent = currentRow.some(cell => cell.trim() !== '');
+    if (hasContent) {
+      rows.push(currentRow);
+    }
+    currentRow = [];
+  };
+
+  const findNextNonLineBreak = (startIndex: number) => {
+    for (let cursor = startIndex; cursor < normalized.length; cursor += 1) {
+      const candidate = normalized[cursor]!;
+      if (candidate === '\n') continue;
+      return cursor;
+    }
+    return -1;
+  };
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index]!;
+
+    if (char === '"') {
+      if (inQuotes && normalized[index + 1] === '"') {
+        currentCell += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+        justSawDelimiter = false;
+      }
+      continue;
+    }
+
+    if (char === ',' && !inQuotes) {
+      currentRow.push(currentCell);
+      currentCell = '';
+      justSawDelimiter = true;
+      continue;
+    }
+
+    if (char === '\n' && !inQuotes) {
+      if (justSawDelimiter) {
+        const nextIndex = findNextNonLineBreak(index + 1);
+        if (nextIndex >= 0 && normalized[nextIndex] === '"') {
+          index = nextIndex - 1;
+          continue;
+        }
+      }
+
+      currentRow.push(currentCell);
+      currentCell = '';
+      pushRow();
+      justSawDelimiter = true;
+      continue;
+    }
+
+    currentCell += char;
+    justSawDelimiter = false;
+  }
+
+  currentRow.push(currentCell);
+  pushRow();
+
+  return rows;
 }
 
 export function rowsToQuizData(rows: string[][]): Quiz[] {
