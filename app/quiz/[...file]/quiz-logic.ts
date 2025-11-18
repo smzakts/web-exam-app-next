@@ -58,12 +58,55 @@ export function decodeFileParam(fileParam: string): {
 }
 
 export function parseCsvText(text: string): string[][] {
-  return text
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .split('\n')
-    .filter(line => line.trim() !== '')
-    .map(line => line.split(','));
+  const normalized = text.replace(/\r\n?/g, '\n');
+
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentCell = '';
+  let inQuotes = false;
+
+  const pushRow = () => {
+    if (currentRow.length === 0) return;
+    const hasContent = currentRow.some(cell => cell.trim() !== '');
+    if (hasContent) {
+      rows.push(currentRow);
+    }
+    currentRow = [];
+  };
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index]!;
+
+    if (char === '"') {
+      if (inQuotes && normalized[index + 1] === '"') {
+        currentCell += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === ',' && !inQuotes) {
+      currentRow.push(currentCell);
+      currentCell = '';
+      continue;
+    }
+
+    if (char === '\n' && !inQuotes) {
+      currentRow.push(currentCell);
+      currentCell = '';
+      pushRow();
+      continue;
+    }
+
+    currentCell += char;
+  }
+
+  currentRow.push(currentCell);
+  pushRow();
+
+  return rows;
 }
 
 export function rowsToQuizData(rows: string[][]): Quiz[] {
